@@ -6,10 +6,6 @@ import {
   Sparkles,
   AlertCircle,
   Loader2,
-  Play,
-  Square,
-  Check,
-  ArrowRight,
   ShieldCheck,
 } from "lucide-react";
 import type {
@@ -31,20 +27,6 @@ import { FileSidebar } from "./FileSidebar";
 import { CodePanel } from "./CodePanel";
 import { InsightPanel } from "./InsightPanel";
 import { FolderPicker } from "./FolderPicker";
-import { cn } from "@/lib/utils";
-
-export const DEMO_STEPS = [
-  "Reading Jutro file",
-  "Detecting Jutro / custom components",
-  "Checking Git history",
-  "Linking Jira tickets",
-  "Finding Confluence docs",
-  "Calculating impact",
-  "Generating AI context",
-] as const;
-
-export type DemoStepIndex = number; // -1 = inactive
-const DEMO_STEP_MS = 700;
 
 const DEFAULT_FILE_NAME = "ClaimSummaryPage.tsx";
 
@@ -216,61 +198,6 @@ export function AppShell() {
     setFilesError(null);
     setSelectedPath(null);
   }, []);
-
-  // Demo mode — runs the canonical "click → see context" path automatically.
-  const [demoStep, setDemoStep] = React.useState<DemoStepIndex>(-1);
-  const demoTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const demoActive = demoStep >= 0;
-
-  const stopDemo = React.useCallback(() => {
-    if (demoTimerRef.current) {
-      clearTimeout(demoTimerRef.current);
-      demoTimerRef.current = null;
-    }
-    setDemoStep(-1);
-  }, []);
-
-  const runDemo = React.useCallback(() => {
-    if (!files || files.length === 0) return;
-    if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
-    const target =
-      files.find((f) => f.name === DEFAULT_FILE_NAME) ?? files[0];
-    // Force a re-selection even if `target` is already selected, so every
-    // downstream fetch (code, analyzer, git, jira, confluence, AI summary)
-    // re-runs visibly during the demo. Without this, clicking Run demo on
-    // the already-selected file would only animate the step strip — the
-    // panels would sit there with stale content.
-    setSelectedPath(null);
-    // Re-set on the next tick so the selection effect's cleanup runs first.
-    setTimeout(() => {
-      setSelectedPath(target.path);
-      setDemoStep(0);
-    }, 0);
-  }, [files]);
-
-  React.useEffect(() => {
-    if (demoStep < 0) return;
-    if (demoStep >= DEMO_STEPS.length) {
-      // Hold the "complete" state briefly, then auto-clear so the indicator
-      // stays unobtrusive after the demo run.
-      demoTimerRef.current = setTimeout(() => setDemoStep(-1), 1800);
-      return;
-    }
-    demoTimerRef.current = setTimeout(
-      () => setDemoStep((s) => s + 1),
-      DEMO_STEP_MS
-    );
-    return () => {
-      if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
-    };
-  }, [demoStep]);
-
-  React.useEffect(
-    () => () => {
-      if (demoTimerRef.current) clearTimeout(demoTimerRef.current);
-    },
-    []
-  );
 
   // Initial repository scan
   React.useEffect(() => {
@@ -742,18 +669,8 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen min-h-screen w-full flex-col overflow-hidden bg-bg-base">
-      <TopBar
-        files={files}
-        repoMode={repoMode}
-        demoActive={demoActive}
-        canRunDemo={!!files && files.length > 0}
-        onRunDemo={runDemo}
-        onStopDemo={stopDemo}
-      />
-      <DemoBanner
-        demoActive={demoActive}
-        demoStep={demoStep}
-      />
+      <TopBar files={files} repoMode={repoMode} />
+      <DevAtlasBanner />
       <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)_400px] gap-0">
         <FileSidebar
           files={files}
@@ -815,17 +732,9 @@ export function AppShell() {
 function TopBar({
   files,
   repoMode,
-  demoActive,
-  canRunDemo,
-  onRunDemo,
-  onStopDemo,
 }: {
   files: RepoFile[] | null;
   repoMode: "demo" | "local";
-  demoActive: boolean;
-  canRunDemo: boolean;
-  onRunDemo: () => void;
-  onStopDemo: () => void;
 }) {
   const count = files?.length ?? 0;
   return (
@@ -841,119 +750,41 @@ function TopBar({
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 text-[11px] text-fg-muted">
-          <Sparkles size={12} className="text-accent" />
-          <span>
-            {files === null
-              ? repoMode === "local"
-                ? "Scanning selected folder…"
-                : "Indexing sample repository…"
-              : `${count} TSX file${count === 1 ? "" : "s"} indexed · ${
-                  repoMode === "local" ? "Local Folder" : "Demo Repo"
-                }`}
-          </span>
-        </div>
-        {demoActive ? (
-          <button
-            type="button"
-            onClick={onStopDemo}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-strong bg-bg-subtle px-2.5 text-[11.5px] font-medium text-fg-primary hover:bg-bg-hover"
-          >
-            <Square size={11} className="fill-current" />
-            Stop demo
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={onRunDemo}
-            disabled={!canRunDemo}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-accent/40 bg-accent/15 px-2.5 text-[11.5px] font-semibold text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Play size={11} className="fill-current" />
-            Run demo
-          </button>
-        )}
+      <div className="flex items-center gap-2 text-[11px] text-fg-muted">
+        <Sparkles size={12} className="text-accent" />
+        <span>
+          {files === null
+            ? repoMode === "local"
+              ? "Scanning selected folder…"
+              : "Indexing sample repository…"
+            : `${count} TSX file${count === 1 ? "" : "s"} indexed · ${
+                repoMode === "local" ? "Local Folder" : "Demo Repo"
+              }`}
+        </span>
       </div>
     </header>
   );
 }
 
-function DemoBanner({
-  demoActive,
-  demoStep,
-}: {
-  demoActive: boolean;
-  demoStep: number;
-}) {
+function DevAtlasBanner() {
   return (
     <div className="shrink-0 border-b border-border-subtle bg-gradient-to-r from-accent/10 via-bg-panel to-bg-panel">
       <div className="flex items-center justify-between gap-4 px-4 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <Sparkles size={12} className="shrink-0 text-accent" />
           <p className="truncate text-[12.5px] text-fg-secondary">
-            <span className="font-semibold text-fg-primary">DevAtlas Demo:</span>{" "}
+            <span className="font-semibold text-fg-primary">DevAtlas:</span>{" "}
             From Jutro file to full engineering context in seconds.
           </p>
-          <span
-            className="ml-1 hidden shrink-0 cursor-help items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300 lg:inline-flex"
-            title="All repository, Git, Jira, and Confluence data shown here is sample data shipped with the demo. No real customer or production sources are wired in."
-          >
-            <ShieldCheck size={10} />
-            Hackathon Safe Demo Data
-          </span>
         </div>
-        {demoActive ? (
-          <DemoStepStrip currentStep={demoStep} />
-        ) : (
-          <span className="hidden shrink-0 text-[11px] text-fg-muted md:inline">
-            Press <kbd className="rounded border border-border-strong bg-bg-subtle px-1 py-0.5 font-mono text-[10px]">Run demo</kbd> to walk through the experience.
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DemoStepStrip({ currentStep }: { currentStep: number }) {
-  const total = DEMO_STEPS.length;
-  const completed = currentStep >= total;
-  const activeLabel = completed ? "Done" : DEMO_STEPS[currentStep] ?? "";
-  return (
-    <div className="flex shrink-0 items-center gap-2 text-[11px]">
-      <div className="hidden items-center gap-1 lg:flex">
-        {DEMO_STEPS.map((_, i) => {
-          const state =
-            i < currentStep
-              ? "done"
-              : i === currentStep
-              ? "active"
-              : "pending";
-          return (
-            <span
-              key={i}
-              className={cn(
-                "h-1.5 w-6 rounded-full transition-colors duration-300",
-                state === "done" && "bg-accent",
-                state === "active" && "animate-pulse bg-accent/70",
-                state === "pending" && "bg-border-strong"
-              )}
-              aria-hidden
-            />
-          );
-        })}
-      </div>
-      <span className="inline-flex items-center gap-1.5 font-medium text-fg-primary">
-        {completed ? (
-          <Check size={12} className="text-emerald-300" />
-        ) : (
-          <Loader2 size={12} className="animate-spin text-accent" />
-        )}
-        <span className="tabular-nums text-fg-muted">
-          {completed ? `${total}/${total}` : `${Math.min(currentStep + 1, total)}/${total}`}
+        <span
+          className="hidden shrink-0 cursor-help items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300 lg:inline-flex"
+          title="All repository, Git, Jira, and Confluence data shown here is sample data shipped with the demo. No real customer or production sources are wired in."
+        >
+          <ShieldCheck size={10} />
+          Hackathon Safe Demo Data
         </span>
-        <span>{activeLabel}</span>
-      </span>
+      </div>
     </div>
   );
 }
