@@ -8,10 +8,12 @@ import {
   Loader2,
   AlertCircle,
   FolderOpen,
+  Hash,
 } from "lucide-react";
 import type { RepoFile, RiskLevel } from "@/lib/types";
 import { Badge } from "./ui/Badge";
 import { cn } from "@/lib/utils";
+import { FolderPicker } from "./FolderPicker";
 
 interface FileSidebarProps {
   files: RepoFile[] | null;
@@ -19,6 +21,13 @@ interface FileSidebarProps {
   error: string | null;
   selectedPath: string | null;
   onSelect: (path: string) => void;
+  repoMode: "demo" | "local";
+  repoName: string;
+  folderPickerSupported: boolean;
+  folderPickerLoading: boolean;
+  folderPickerError: string | null;
+  onPickFolder: () => void;
+  onResetToDemo: () => void;
 }
 
 const RISK_LABEL: Record<RiskLevel, string> = {
@@ -33,10 +42,23 @@ export function FileSidebar({
   error,
   selectedPath,
   onSelect,
+  repoMode,
+  repoName,
+  folderPickerSupported,
+  folderPickerLoading,
+  folderPickerError,
+  onPickFolder,
+  onResetToDemo,
 }: FileSidebarProps) {
   const [query, setQuery] = React.useState("");
 
-  const filtered = (files ?? []).filter(
+  // Defensive: only .tsx files are supported for now even if the source list
+  // happens to include something else.
+  const tsxOnly = (files ?? []).filter((f) =>
+    f.name.toLowerCase().endsWith(".tsx")
+  );
+
+  const filtered = tsxOnly.filter(
     (f) =>
       f.name.toLowerCase().includes(query.toLowerCase()) ||
       f.path.toLowerCase().includes(query.toLowerCase())
@@ -44,10 +66,20 @@ export function FileSidebar({
 
   const pages = filtered.filter((f) => f.type === "page");
   const components = filtered.filter((f) => f.type === "component");
+  const hooks = filtered.filter((f) => f.type === "hook");
   const others = filtered.filter((f) => f.type === "other");
 
   return (
     <aside className="flex min-h-0 flex-col border-r border-border-subtle bg-bg-panel">
+      <FolderPicker
+        mode={repoMode}
+        repoName={repoName}
+        loading={folderPickerLoading}
+        error={folderPickerError}
+        supported={folderPickerSupported}
+        onPick={onPickFolder}
+        onReset={onResetToDemo}
+      />
       <div className="px-3 pt-3 pb-2">
         <label className="relative block">
           <Search
@@ -77,17 +109,27 @@ export function FileSidebar({
           <SidebarStatus
             tone="muted"
             icon={<Loader2 size={14} className="animate-spin" />}
-            title="Indexing sample repository…"
+            title={
+              repoMode === "local"
+                ? "Scanning selected folder…"
+                : "Indexing sample repository…"
+            }
           />
-        ) : files && files.length === 0 ? (
+        ) : tsxOnly.length === 0 ? (
           <SidebarStatus
             tone="muted"
             icon={<FolderOpen size={14} />}
-            title="No source files found"
-            detail="The sample repository contains no .ts or .tsx files."
+            title="No TSX files found in this folder."
+            detail="Only .tsx files are supported in this demo."
           />
         ) : (
           <>
+            <div className="mb-2 flex items-center justify-between gap-2 px-3 pt-2 text-[10px] uppercase tracking-wider text-fg-muted">
+              <span className="inline-flex items-center gap-1">
+                <Hash size={10} /> {tsxOnly.length} TSX file{tsxOnly.length === 1 ? "" : "s"}
+              </span>
+              <span className="text-fg-muted/70">{repoMode === "local" ? "Local" : "Demo"}</span>
+            </div>
             <FileGroup
               label="Pages"
               icon={<Layers size={11} />}
@@ -99,6 +141,13 @@ export function FileSidebar({
               label="Components"
               icon={<FileCode2 size={11} />}
               files={components}
+              selectedPath={selectedPath}
+              onSelect={onSelect}
+            />
+            <FileGroup
+              label="Hooks"
+              icon={<FileCode2 size={11} />}
+              files={hooks}
               selectedPath={selectedPath}
               onSelect={onSelect}
             />

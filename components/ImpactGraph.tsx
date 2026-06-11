@@ -197,7 +197,7 @@ export function ImpactGraph({ file }: ImpactGraphProps) {
             );
           })}
           {LEFT_GROUPS.every((g) => leftNodes(g.type).length === 0) ? (
-            <EmptyColumn>No inputs detected.</EmptyColumn>
+            <EmptyColumn>No dependencies detected.</EmptyColumn>
           ) : null}
         </div>
 
@@ -229,7 +229,9 @@ export function ImpactGraph({ file }: ImpactGraphProps) {
             );
           })}
           {RIGHT_GROUPS.every((g) => leftNodes(g.type).length === 0) ? (
-            <EmptyColumn>No detected consumers or API calls.</EmptyColumn>
+            <EmptyColumn>
+              No downstream consumers detected in selected folder.
+            </EmptyColumn>
           ) : null}
         </div>
       </div>

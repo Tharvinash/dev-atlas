@@ -1,4 +1,4 @@
-export type FileType = "page" | "component" | "other";
+export type FileType = "page" | "component" | "hook" | "other";
 export type RiskLevel = "low" | "medium" | "high";
 
 export interface Commit {

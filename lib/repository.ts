@@ -10,12 +10,19 @@ export interface ScannedFile {
   name: string;
   /** Path relative to the repository root (POSIX-style separators). */
   path: string;
-  type: FileType | "other";
+  type: FileType;
   risk: RiskLevel;
 }
 
-const ALLOWED_EXTS = new Set([".ts", ".tsx"]);
-const IGNORED_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next"]);
+const ALLOWED_EXTS = new Set([".tsx"]);
+const IGNORED_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  "coverage",
+]);
 
 export async function scanRepository(): Promise<ScannedFile[]> {
   const found: ScannedFile[] = [];
@@ -56,10 +63,11 @@ async function walk(dir: string, out: ScannedFile[]): Promise<void> {
   }
 }
 
-function classify(relPath: string): FileType | "other" {
+function classify(relPath: string): FileType {
   const lower = relPath.toLowerCase();
   if (lower.includes("/pages/")) return "page";
   if (lower.includes("/components/")) return "component";
+  if (lower.includes("/hooks/")) return "hook";
   return "other";
 }
 

@@ -20,9 +20,17 @@ import type {
 } from "@/lib/types";
 import { buildFallbackAnalysis, getMockAnalysis } from "@/lib/mock-data";
 import { computeImpactScore } from "@/lib/impact";
+import {
+  analyzeLocalFile,
+  annotateLocalRiskByAnalysis,
+  isFolderPickerSupported,
+  pickLocalRepo,
+  type LocalRepo,
+} from "@/lib/local-repo";
 import { FileSidebar } from "./FileSidebar";
 import { CodePanel } from "./CodePanel";
 import { InsightPanel } from "./InsightPanel";
+import { FolderPicker } from "./FolderPicker";
 import { cn } from "@/lib/utils";
 
 export const DEMO_STEPS = [
@@ -157,6 +165,58 @@ export function AppShell() {
   const [aiLoading, setAiLoading] = React.useState(false);
   const [aiError, setAiError] = React.useState<string | null>(null);
 
+  // Repository source — "demo" runs through the server APIs; "local" runs
+  // entirely in-browser against a folder picked via showDirectoryPicker.
+  const [repoMode, setRepoMode] = React.useState<"demo" | "local">("demo");
+  const [localRepo, setLocalRepo] = React.useState<LocalRepo | null>(null);
+  const [localPickError, setLocalPickError] = React.useState<string | null>(null);
+  const [localPickLoading, setLocalPickLoading] = React.useState(false);
+  const [folderPickerSupported, setFolderPickerSupported] =
+    React.useState<boolean>(true);
+  React.useEffect(() => {
+    setFolderPickerSupported(isFolderPickerSupported());
+  }, []);
+
+  const onPickLocalFolder = React.useCallback(async () => {
+    setLocalPickError(null);
+    setLocalPickLoading(true);
+    try {
+      const result = await pickLocalRepo();
+      if (!result.ok) {
+        setLocalPickError(result.error);
+        return;
+      }
+      // Annotate risk per-file using the in-browser analyzer so the sidebar
+      // doesn't show a sea of "medium" badges.
+      const annotated = annotateLocalRiskByAnalysis(result.repo);
+      const repo = { ...result.repo, files: annotated };
+      setLocalRepo(repo);
+      setRepoMode("local");
+      setFiles(annotated);
+      setFilesError(null);
+      const initial =
+        annotated.find((f) => f.name === DEFAULT_FILE_NAME) ?? annotated[0];
+      // Force re-selection so all downstream effects refire.
+      setSelectedPath(null);
+      setTimeout(() => {
+        if (initial) setSelectedPath(initial.path);
+      }, 0);
+    } finally {
+      setLocalPickLoading(false);
+    }
+  }, []);
+
+  const onResetToDemo = React.useCallback(() => {
+    setRepoMode("demo");
+    setLocalRepo(null);
+    setLocalPickError(null);
+    // Re-trigger the demo scan effect by clearing files so the initial scan
+    // path runs again on the next render.
+    setFiles(null);
+    setFilesError(null);
+    setSelectedPath(null);
+  }, []);
+
   // Demo mode — runs the canonical "click → see context" path automatically.
   const [demoStep, setDemoStep] = React.useState<DemoStepIndex>(-1);
   const demoTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -214,6 +274,8 @@ export function AppShell() {
 
   // Initial repository scan
   React.useEffect(() => {
+    if (repoMode !== "demo") return;
+    if (files !== null) return;
     let cancelled = false;
     (async () => {
       try {
@@ -236,7 +298,7 @@ export function AppShell() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [repoMode, files]);
 
   // On selection: fetch source + analysis in parallel
   React.useEffect(() => {
@@ -253,7 +315,7 @@ export function AppShell() {
 
     setGitHistory(null);
     setGitError(null);
-    setGitLoading(true);
+    setGitLoading(repoMode === "demo");
 
     setJiraTickets(null);
     setJiraError(null);
@@ -266,6 +328,70 @@ export function AppShell() {
     setAiSummary(null);
     setAiError(null);
     setAiLoading(false);
+
+    if (repoMode === "local") {
+      // In local mode every step runs in-browser against the in-memory map.
+      // No HTTP calls, no git history (the picked folder may not be a git
+      // checkout), no Jira/Confluence — those settle to empty so the AI
+      // summary effect runs with whatever context is available.
+      const repo = localRepo;
+      if (!repo) {
+        setCodeError("Local repository is no longer available.");
+        setCodeLoading(false);
+        setAnalysisError("Local repository is no longer available.");
+        setAnalysisLoading(false);
+        return;
+      }
+      const source = repo.fileSources.get(selectedPath);
+      if (typeof source !== "string") {
+        setCodeError("File missing from the picked folder.");
+        setCodeLoading(false);
+        setAnalysisError("File missing from the picked folder.");
+        setAnalysisLoading(false);
+        return;
+      }
+      setCode(source);
+      setCodeLoading(false);
+      try {
+        const result = analyzeLocalFile(repo, selectedPath);
+        if (!result) {
+          setAnalysisError("Unable to analyze the selected file.");
+        } else {
+          // Map to the same wire shape the API would have returned.
+          setAnalysis({
+            fileName: result.fileName,
+            path: result.path,
+            imports: result.imports,
+            jutroComponents: result.jutroComponents,
+            customComponents: result.customComponents,
+            localDependencies: result.localDependencies,
+            externalDependencies: result.externalDependencies,
+            apiCalls: result.apiCalls,
+            hooks: result.hooks,
+            exportedComponents: result.exportedComponents,
+            usedBy: result.usedBy,
+            risk: result.risk,
+            impactSummary: result.impactSummary,
+          });
+        }
+      } catch (err) {
+        setAnalysisError(
+          err instanceof Error ? err.message : "Unable to analyze file"
+        );
+      } finally {
+        setAnalysisLoading(false);
+      }
+      // Settle git/jira/confluence so the AI summary effect can run.
+      setGitHistory(null);
+      setGitLoading(false);
+      setJiraTickets([]);
+      setJiraLoading(false);
+      setConfluenceDocs([]);
+      setConfluenceLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const sourceReq = (async () => {
       try {
@@ -335,7 +461,7 @@ export function AppShell() {
     return () => {
       cancelled = true;
     };
-  }, [selectedPath]);
+  }, [selectedPath, repoMode, localRepo]);
 
   // After git history lands, look up Jira tickets for any extracted IDs.
   const ticketKey = (gitHistory?.ticketIds ?? []).join(",");
@@ -618,6 +744,7 @@ export function AppShell() {
     <div className="flex h-screen min-h-screen w-full flex-col overflow-hidden bg-bg-base">
       <TopBar
         files={files}
+        repoMode={repoMode}
         demoActive={demoActive}
         canRunDemo={!!files && files.length > 0}
         onRunDemo={runDemo}
@@ -634,6 +761,13 @@ export function AppShell() {
           error={filesError}
           selectedPath={selectedPath}
           onSelect={setSelectedPath}
+          repoMode={repoMode}
+          repoName={repoMode === "local" ? localRepo?.rootName ?? "local folder" : "sample-jutro-repo"}
+          folderPickerSupported={folderPickerSupported}
+          folderPickerLoading={localPickLoading}
+          folderPickerError={localPickError}
+          onPickFolder={onPickLocalFolder}
+          onResetToDemo={onResetToDemo}
         />
         {effectiveView ? (
           <CodePanel
@@ -680,12 +814,14 @@ export function AppShell() {
 
 function TopBar({
   files,
+  repoMode,
   demoActive,
   canRunDemo,
   onRunDemo,
   onStopDemo,
 }: {
   files: RepoFile[] | null;
+  repoMode: "demo" | "local";
   demoActive: boolean;
   canRunDemo: boolean;
   onRunDemo: () => void;
@@ -710,8 +846,12 @@ function TopBar({
           <Sparkles size={12} className="text-accent" />
           <span>
             {files === null
-              ? "Indexing sample repository…"
-              : `${count} file${count === 1 ? "" : "s"} indexed`}
+              ? repoMode === "local"
+                ? "Scanning selected folder…"
+                : "Indexing sample repository…"
+              : `${count} TSX file${count === 1 ? "" : "s"} indexed · ${
+                  repoMode === "local" ? "Local Folder" : "Demo Repo"
+                }`}
           </span>
         </div>
         {demoActive ? (
