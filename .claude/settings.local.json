@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(awk 'NR>1 {print $4}')",
+      "Bash(awk '$NF !~ /grep|pgrep|ps/ && /node|next/')",
+      "Bash(npx --no-install tsc --noEmit)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "confluence",
+    "jira",
+    "devassistant",
+    "figma",
+    "github",
+    "guidewire-docs",
+    "guidewire-docs-staging",
+    "jutro-developer-assistant",
+    "arc-mcp"
+  ]
+}
